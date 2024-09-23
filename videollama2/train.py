@@ -401,12 +401,15 @@ def train(attn_implementation=None):
     global local_rank
     set_seed(42)
 
+    # Parse arguments
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
+    # Set device and data type to bf16
     local_rank = training_args.local_rank
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
 
+    # bnb settings (not used for now)
     bnb_model_from_pretrained_args = {}
     if training_args.bits in [4, 8]:
         from transformers import BitsAndBytesConfig
@@ -429,12 +432,16 @@ def train(attn_implementation=None):
             )
         ))
 
+    # load model configuration
     config = VLLMConfigs[model_args.model_type].from_pretrained(model_args.model_path, trust_remote_code=True)
+
+    # attention implementation [flash_attention_2]
     if 'gemma2' in model_args.model_type:
         config._attn_implementation = 'eager'
     else:
         config._attn_implementation = attn_implementation
 
+    # load llm
     if model_args.vision_tower is not None:
         model = VLLMs[model_args.model_type].from_pretrained(
             model_args.model_path,
@@ -458,14 +465,17 @@ def train(attn_implementation=None):
         )
     model.config.use_cache = False
 
+    # freeze settings
     if model_args.freeze_backbone:
         model.model.requires_grad_(False)
 
+    # quantization settings (not used for now)
     if training_args.bits in [4, 8]:
         from peft import prepare_model_for_kbit_training
         model.config.torch_dtype=(torch.float32 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=training_args.gradient_checkpointing)
 
+    # grad settings for input embeddings
     if training_args.gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
@@ -474,6 +484,7 @@ def train(attn_implementation=None):
                 output.requires_grad_(True)
             model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
+    # LoRA settings
     if training_args.lora_enable:
         from peft import LoraConfig, get_peft_model
         lora_config = LoraConfig(
@@ -492,7 +503,7 @@ def train(attn_implementation=None):
         rank0_print("Adding LoRA adapters...")
         model = get_peft_model(model, lora_config)
 
-
+    # tokenizer settings
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_path,
         cache_dir=training_args.cache_dir,
@@ -504,6 +515,7 @@ def train(attn_implementation=None):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.unk_token
 
+    # initialize vision tower
     if model_args.vision_tower is not None:
         # initialize vision encoder + multi-modal projector
         model.get_model().initialize_vision_modules(model_args=model_args, fsdp=training_args.fsdp)
@@ -544,6 +556,7 @@ def train(attn_implementation=None):
         model.config.mm_projector_lr = training_args.mm_projector_lr
         model.config.num_frames = NUM_FRAMES if data_args.num_frames is None else data_args.num_frames
 
+    # quantization settings (not used for now)
     if training_args.bits in [4, 8]:
         from peft.tuners.lora import LoraLayer
         for name, module in model.named_modules():
