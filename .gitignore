@@ -56,3 +56,7 @@ work_dirs*/
 pretrained/
 publish_models/
 public_models/
+
+eval/
+eval_output/
+cache/

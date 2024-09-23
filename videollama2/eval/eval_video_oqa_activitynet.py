@@ -110,7 +110,7 @@ def main(args):
     # Preparing dictionary of question-answer sets
     prediction_set = {}
     for sample in new_pred_contents:
-        id = sample['id']
+        id = str(sample['id'])
         question = sample['question']
         answer = sample['answer']
         pred = sample['pred']
