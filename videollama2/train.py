@@ -153,23 +153,14 @@ def preprocess_plain(
             {'role': 'user', 'content': modal_token},
             {'role': 'assistant', 'content': source[1]['value']}
         ]
-        conversation = tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=False)
-        # 2. tokenize conversations
-        input_ids.append(tokenizer_multimodal_token(conversation, tokenizer, modal_token, return_tensors='pt'))
-        # 3. make targets
-        targets.append(copy.deepcopy(input_ids[-1]))
-        instruction = tokenizer.apply_chat_template(message[:1], tokenize=False, add_generation_prompt=True)
-        instruction_len = len(tokenizer_multimodal_token(instruction, tokenizer, modal_token, return_tensors='pt'))
-        targets[-1][:instruction_len] = IGNORE_INDEX
+        conversation = " ".join([sentence['value'] for sentence in source])
 
-        # print("instruction: ----------------")
-        # print(instruction)
-        # print("conversation: ----------------")
-        # print(conversation)
-        # print("training targets: ----------------")
-        # print(tokenizer.decode(targets[-1][instruction_len:]))
-        # print(input_ids[-1])
-        # print(targets[-1])
+        input_id = tokenizer_multimodal_token(conversation, tokenizer, modal_token, return_tensors='pt')
+        target = copy.deepcopy(input_id)
+        target[input_id == MODAL_INDEX_MAP[modal_token]] = IGNORE_INDEX
+
+        input_ids.append(input_id)
+        targets.append(target)
 
     return dict(input_ids=input_ids, labels=targets)
 
@@ -213,6 +204,16 @@ def preprocess(
                 conversation_len = len(tokenizer_multimodal_token(conversation, tokenizer, modal_token, return_tensors='pt'))
 
                 targets[-1][cur:instruction_len] = IGNORE_INDEX
+
+                # print("instruction: ----------------")
+                # print(instruction)
+                # print("conversation: ----------------")
+                # print(conversation)
+                # print("training targets: ----------------")
+                # print(tokenizer.decode(targets[-1][instruction_len:conversation_len]))
+                # print(input_ids[-1][cur:conversation_len])
+                # print(targets[-1][cur:conversation_len])
+                # print(targets[-1][instruction_len:conversation_len])
 
                 cur = conversation_len
                 message += tmp_message
@@ -434,12 +435,7 @@ def train(attn_implementation=None):
 
     # load model configuration
     config = VLLMConfigs[model_args.model_type].from_pretrained(model_args.model_path, trust_remote_code=True)
-
-    # attention implementation [flash_attention_2]
-    if 'gemma2' in model_args.model_type:
-        config._attn_implementation = 'eager'
-    else:
-        config._attn_implementation = attn_implementation
+    config._attn_implementation = attn_implementation
 
     # load llm
     if model_args.vision_tower is not None:
